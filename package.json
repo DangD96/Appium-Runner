@@ -1,0 +1,9 @@
+{
+    "name": "pickles",
+    "version": "1.0.0",
+    "description": "CLI wrapper for quickly running Appium tests",
+    "type": "module",
+    "bin": {
+        "pickles": "./runner.js"
+      }
+}
