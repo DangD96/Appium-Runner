@@ -1,67 +1,75 @@
 #!/usr/bin/env node 
-// AKA use Node to execute this script. Works on Windows or Mac
+// AKA use Node to execute this script. Works on Windows and Mac
+
 import { spawn } from "child_process";
 import fs from 'fs';
 const OS = process.platform;
 
-// CLI Arguments 
-const CLI_ARGS = process.argv;           // built in Node array that holds the CLI arguments 
-const RELEVANT_ARGS = CLI_ARGS.slice(2); // ARGS[0] is path to Node executable, ARGS[1] is path to script. Don't need them
-let YAML = null;          
-let TEST_ID = null;        
-const MAX_SUPPORTED_ARGS = 2;            // YAML and TEST_ID
+// CLI 
+const CLI_ARGS = process.argv;            // built in Node array that holds the CLI arguments 
+const RELEVANT_ARGS = CLI_ARGS.slice(2);  // CLI_ARGS[0] is path to Node executable, CLI_ARGS[1] is path to script. Don't need them       
+const MAX_SUPPORTED_ARGS = 2;             // yaml and testIDString
 const MIN_SUPPORTED_ARGS = 1;
 
-// Configuration
-const config = JSON.parse(fs.readFileSync('./config.json', 'utf8'));
+// Config
+const CONFIG = getConfigFromJson();
 const JAR_PATH = getPathToJarFile();
 
 main();
 
 function main() {
-    const numOfArgs = getNumOfRelevantArgs();
+    const numOfArgs = RELEVANT_ARGS.length;
     if (numOfArgs > MAX_SUPPORTED_ARGS) {
-        console.log(`Max supported # of arguments: ${MAX_SUPPORTED_ARGS}\nActual # of arguments: ${getNumOfRelevantArgs()}`);
+        console.error(`Max supported # of arguments: ${MAX_SUPPORTED_ARGS}\nActual # of arguments: ${numOfArgs}`);
         process.exit(1);
     } else if (numOfArgs < MIN_SUPPORTED_ARGS) {
-        console.log("You must provide command line arguments");
+        console.error("You must provide command line arguments");
         process.exit(1);
     } else {
         let javaArgs = ["-jar", JAR_PATH];
+        let yaml = "";
+        let testIDString = "";
         switch (numOfArgs) {
             case 1:
-                // either YAML or TEST_ID. When passed in as CLI argument, TEST_ID can be either a single number or something like "1 2 3"    
+                // either yaml or testIDString
+                // When passed in as CLI argument, testIDString can be either a single number or something like "1 2 3"    
                 let mysteryArg = RELEVANT_ARGS[0]; 
-                if (isNumber(removeAllWhitespace(mysteryArg))) {
-                    TEST_ID = mysteryArg;
-                    YAML = getDefaultYamlFile();
-                    javaArgs.push(YAML);
-                    addOverrideTestIDs(javaArgs); 
+                if (isNumericString(removeAllWhitespace(mysteryArg))) {
+                    testIDString = mysteryArg;
+                    yaml = getDefaultYamlFile();
+                    javaArgs.push(yaml);
+                    addOverrideTestIDs(javaArgs, testIDString); 
                 } else {
-                    YAML = mysteryArg;
-                    javaArgs.push(YAML);
+                    yaml = mysteryArg;
+                    javaArgs.push(yaml);
                 }
                 break;
             default:
-                YAML = RELEVANT_ARGS[0];
-                TEST_ID = RELEVANT_ARGS[1];
-                addOverrideTestIDs(javaArgs);
+                yaml = RELEVANT_ARGS[0];
+                testIDString = RELEVANT_ARGS[1];
+                addOverrideTestIDs(javaArgs, testIDString);
         }
-        spawn("java", javaArgs); // spawn separate java process
+        console.log(javaArgs);
+        const java = spawn("java", javaArgs, { stdio: "inherit" }); // spawn separate java process
+        java.on("error", err => {
+            console.error("Failed to start Java: " + err);
+            process.exit(1);
+        })
     }
 }
 
+
 // #region Performers
-function addOverrideTestIDs(javaArgs) {
-    if (!isMultipleTestIDs()) {
-        javaArgs.push(TEST_ID); // single ID
+function addOverrideTestIDs(javaArgs, testIDString) {
+    if (!isMultipleTestIDs(testIDString)) {
+        javaArgs.push(testIDString); // single ID
     } else {
-        javaArgs.push(TEST_ID.replace(" ", ",")); // multiple IDs. Company appium test runner needs comma delimted list
+        javaArgs.push(testIDString.replace(" ", ",")); // multiple IDs. Company Appium test runner needs comma delimted list
     }
 }
 
 function unsupportedOS(OS) {
-    console.log("Unsupported OS: " + OS);
+    console.error("Unsupported OS: " + OS);
     process.exit(1);
 }
 
@@ -78,15 +86,23 @@ function removeAllWhitespace(str) {
 
 
 // #region Getters
-// use hardcoded default path if not specified in config.json
+function getConfigFromJson() {
+    try {
+        return JSON.parse(fs.readFileSync('./config.json', 'utf8'));
+    } catch (error) {
+        console.error("Failed to load config.json: " + error);
+        process.exit(1);
+    }
+}
+
 function getPathToJarFile() {
     let jarPath;
     if (isWindows(OS)) {
-        jarPath = config.windows.jarLocation;
-        if (jarPath === "") return "C:\\Appium"; 
+        jarPath = CONFIG.windows.overrideJarLocation;
+        if (jarPath === "") return "C:\\Appium"; // hardcode JAR path if not overriden in config.json
         return jarPath;
     } else if (isMacOS(OS)) {
-        jarPath = config.macOS.jarLocation;
+        jarPath = CONFIG.macOS.overrideJarLocation;
         if (jarPath === "") return "/Applications/Appium"; 
         return jarPath;
     } else {
@@ -96,30 +112,26 @@ function getPathToJarFile() {
 
 function getDefaultYamlFile() {
     if (isWindows(OS)) {
-        return config.windows.defaultYamlFile;
+        return CONFIG.windows.defaultYamlFile; // get default YAML file from config.json if not specified
     } else if (isMacOS(OS)) {
-        return config.macOS.defaultYamlFile;
+        return CONFIG.macOS.defaultYamlFile;
     } else {
        unsupportedOS(OS);
     }
-}
-
-function getNumOfRelevantArgs() {
-    return RELEVANT_ARGS.length;
 }
 // #endregion
 
 
 // #region Booleans
-function isNumber(x) {
+function isNumericString(x) {
     if (x === "" || x === " ") return false; // these eval to 0
-    return !Number.isNaN(Number(x));         // real numbers return true. Words eval to NaN
+    return !Number.isNaN(Number(x));         // real numeric strings return true. Wordy strings eval to NaN
 }
 
-// when you pass in "1,2", the TEST_ID variable turns into "1 2"
-// comma might be causing powershell to be turning that into an array [1, 2] which then gets parsed back into "1 2" by JavaScript
-function isMultipleTestIDs() {
-    return TEST_ID.includes(" ");
+// when you pass in "1,2,3", the argument turns into "1 2 3"
+// comma might be causing powershell to be turning that into an array [1, 2, 3] which then gets parsed back into "1 2 3" by JavaScript
+function isMultipleTestIDs(testIDString) {
+    return testIDString.includes(" ");
 }
 
 function isWindows(os) {

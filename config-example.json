@@ -1,0 +1,11 @@
+{
+    "windows" : {
+        "overrideJarLocation" : "",
+        "defaultYamlFile" : "djd-default"
+    },
+
+    "macOS" : {
+        "overrideJarLocation" : "",
+        "defaultYamlFile" : "djd-default"
+    }
+}
