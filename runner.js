@@ -2,18 +2,24 @@
 // AKA use Node to execute this script. Works on Windows and Mac
 
 import { spawn } from "child_process";
-import fs from 'fs';
+import path from 'path';
+import { readFileSync } from "fs";
+import { fileURLToPath } from "url";
+
 const OS = process.platform;
+const PATH_TO_SCRIPT = fileURLToPath(import.meta.url);         // absolute path to this script
+const PARENT_DIRECTORY = path.dirname(PATH_TO_SCRIPT);         // directory where script lives
+const JSON_PATH = path.join(PARENT_DIRECTORY, "config.json");  // config.json is in same directory
 
 // CLI 
 const CLI_ARGS = process.argv;            // built in Node array that holds the CLI arguments 
-const RELEVANT_ARGS = CLI_ARGS.slice(2);  // CLI_ARGS[0] is path to Node executable, CLI_ARGS[1] is path to script. Don't need them       
+const RELEVANT_ARGS = CLI_ARGS.slice(2);  // CLI_ARGS[0] is path to Node executable, CLI_ARGS[1] is path to script (not reliable). Don't need them       
 const MAX_SUPPORTED_ARGS = 2;             // yaml and testIDString
 const MIN_SUPPORTED_ARGS = 1;
 
 // Config
 const CONFIG = getConfigFromJson();
-const JAR_PATH = getPathToJarFile();
+const JAR_LOCATION = getJarLocation();
 
 main();
 
@@ -26,6 +32,7 @@ function main() {
         console.error("You must provide command line arguments");
         process.exit(1);
     } else {
+        const JAR_PATH = path.join(JAR_LOCATION, "appium.jar");
         let javaArgs = ["-jar", JAR_PATH];
         let yaml = "";
         let testIDString = "";
@@ -47,6 +54,7 @@ function main() {
             default:
                 yaml = RELEVANT_ARGS[0];
                 testIDString = RELEVANT_ARGS[1];
+                javaArgs.push(yaml);
                 addOverrideTestIDs(javaArgs, testIDString);
         }
         console.log(javaArgs);
@@ -64,7 +72,7 @@ function addOverrideTestIDs(javaArgs, testIDString) {
     if (!isMultipleTestIDs(testIDString)) {
         javaArgs.push(testIDString); // single ID
     } else {
-        javaArgs.push(testIDString.replace(" ", ",")); // multiple IDs. Company Appium test runner needs comma delimted list
+        javaArgs.push(testIDString.replace(" ", ",")); // multiple IDs. Company Appium test runner needs comma delimited list
     }
 }
 
@@ -88,23 +96,24 @@ function removeAllWhitespace(str) {
 // #region Getters
 function getConfigFromJson() {
     try {
-        return JSON.parse(fs.readFileSync('./config.json', 'utf8'));
+        return JSON.parse(readFileSync(JSON_PATH, 'utf8'));
     } catch (error) {
         console.error("Failed to load config.json: " + error);
         process.exit(1);
     }
 }
 
-function getPathToJarFile() {
-    let jarPath;
+// hardcode JAR location if not overriden in config.json
+function getJarLocation() {
+    let jarLocation;
     if (isWindows(OS)) {
-        jarPath = CONFIG.windows.overrideJarLocation;
-        if (jarPath === "") return "C:\\Appium"; // hardcode JAR path if not overriden in config.json
-        return jarPath;
+        jarLocation = CONFIG.windows.overrideJarLocation;
+        if (jarLocation === "") return "C:\\Appium"; 
+        return jarLocation;
     } else if (isMacOS(OS)) {
-        jarPath = CONFIG.macOS.overrideJarLocation;
-        if (jarPath === "") return "/Applications/Appium"; 
-        return jarPath;
+        jarLocation = CONFIG.macOS.overrideJarLocation;
+        if (jarLocation === "") return "/Applications/Appium"; 
+        return jarLocation;
     } else {
         unsupportedOS(OS);
     }
